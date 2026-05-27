@@ -1,0 +1,4 @@
+node_modules
+.env
+workout_session.json
+workout_session.md

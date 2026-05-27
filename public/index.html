@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Verve In-Ear Workout Coach</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">OpenAI Voice Hack Night Demo</p>
+          <h1>Verve In-Ear Workout Coach</h1>
+          <p class="lede">
+            Realtime voice coaching with server-owned workout state, non-blocking tool timers,
+            and a clean redirect from SpaceX banter back into the next set.
+          </p>
+        </div>
+        <div class="hero-actions">
+          <button id="connectButton" class="primary">Connect Live Voice</button>
+          <button id="resetButton" class="secondary">Reset Demo</button>
+          <a class="artifact-link" href="/workout_session.json" target="_blank" rel="noreferrer">
+            Open JSON Artifact
+          </a>
+          <a class="artifact-link" href="/workout_session.md" target="_blank" rel="noreferrer">
+            Open Markdown Artifact
+          </a>
+        </div>
+      </header>
+
+      <main class="grid">
+        <section class="panel status-panel">
+          <div class="panel-header">
+            <h2>Live Status</h2>
+            <span id="connectionBadge" class="badge idle">idle</span>
+          </div>
+          <div class="status-grid">
+            <div>
+              <p class="label">Phase</p>
+              <p id="phaseValue" class="value">awaiting_start</p>
+            </div>
+            <div>
+              <p class="label">Current Step</p>
+              <p id="stepValue" class="value">push-ups</p>
+            </div>
+            <div>
+              <p class="label">Rest Timer</p>
+              <p id="timerValue" class="value">not running</p>
+            </div>
+            <div>
+              <p class="label">Model</p>
+              <p id="modelValue" class="value">-</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel quick-panel">
+          <div class="panel-header">
+            <h2>Quick Fallback Turns</h2>
+          </div>
+          <div class="quick-actions">
+            <button data-turn="I'm ready for a quick workout.">Ready</button>
+            <button data-turn="Done.">Done</button>
+            <button data-turn="Done, 20 reps.">Done, 20 reps</button>
+            <button data-turn="Yeah, give me a quick SpaceX launch update.">SpaceX</button>
+            <button data-turn="Done, but my knee feels weird.">Knee discomfort</button>
+            <button data-turn="Done. Let's wrap it up.">Finish</button>
+          </div>
+          <form id="fallbackForm" class="fallback-form">
+            <label for="fallbackInput">Manual text turn</label>
+            <div class="input-row">
+              <input
+                id="fallbackInput"
+                name="text"
+                type="text"
+                placeholder="Type a fallback turn here"
+                autocomplete="off"
+              />
+              <button type="submit" class="secondary">Send</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel transcript-panel">
+          <div class="panel-header">
+            <h2>Transcript</h2>
+          </div>
+          <div id="transcriptList" class="log-list"></div>
+        </section>
+
+        <section class="panel state-panel">
+          <div class="panel-header">
+            <h2>Structured Workout State</h2>
+          </div>
+          <pre id="stateDump" class="json-dump"></pre>
+        </section>
+
+        <section class="panel event-panel">
+          <div class="panel-header">
+            <h2>Tool and Timer Events</h2>
+          </div>
+          <div id="eventList" class="log-list"></div>
+        </section>
+
+        <section class="panel summary-panel">
+          <div class="panel-header">
+            <h2>Final Summary Payload</h2>
+          </div>
+          <pre id="summaryDump" class="json-dump"></pre>
+        </section>
+      </main>
+    </div>
+
+    <audio id="remoteAudio" autoplay></audio>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
