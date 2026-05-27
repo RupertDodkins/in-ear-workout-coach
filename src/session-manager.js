@@ -99,6 +99,19 @@ function parseMaybeJson(value) {
   }
 }
 
+function toolPriority(name) {
+  switch (name) {
+    case "log_set":
+      return 1;
+    case "start_rest_timer":
+      return 2;
+    case "update_plan":
+      return 3;
+    default:
+      return 99;
+  }
+}
+
 export class RealtimeWorkoutSessionManager {
   constructor({
     apiKey,
@@ -122,6 +135,7 @@ export class RealtimeWorkoutSessionManager {
 
     this.sidebandSocket = null;
     this.callId = null;
+    this.activeResponseId = null;
     this.controller = new DemoController({
       jsonPath,
       markdownPath,
@@ -139,6 +153,7 @@ export class RealtimeWorkoutSessionManager {
   async reset() {
     await this.closeSideband("reset");
     this.callId = null;
+    this.activeResponseId = null;
     this.controller.reset();
   }
 
@@ -297,6 +312,7 @@ export class RealtimeWorkoutSessionManager {
 
     const socket = this.sidebandSocket;
     this.sidebandSocket = null;
+    this.activeResponseId = null;
     this.controller.appendEvent("realtime.sideband.close_request", `Closing sideband: ${reason}.`);
 
     await new Promise((resolve) => {
@@ -325,6 +341,8 @@ export class RealtimeWorkoutSessionManager {
     this.controller.appendTranscript("user", text, "fallback_text");
 
     await this.sendRealtimeEvent({ type: "response.cancel" });
+    await this.sendRealtimeEvent({ type: "output_audio_buffer.clear" });
+    await this.waitForResponseIdle();
     await this.sendRealtimeEvent({
       type: "conversation.item.create",
       item: {
@@ -354,6 +372,7 @@ export class RealtimeWorkoutSessionManager {
 
     await this.sendRealtimeEvent({ type: "response.cancel" });
     await this.sendRealtimeEvent({ type: "output_audio_buffer.clear" });
+    await this.waitForResponseIdle();
     await this.sendSessionUpdate();
     await this.sendRealtimeEvent({
       type: "response.create",
@@ -377,6 +396,12 @@ export class RealtimeWorkoutSessionManager {
     }
 
     switch (event.type) {
+      case "response.created":
+        this.activeResponseId = event.response?.id ?? "active";
+        break;
+      case "response.cancelled":
+        this.activeResponseId = null;
+        break;
       case "conversation.item.input_audio_transcription.completed":
         this.controller.appendTranscript("user", event.transcript, "voice");
         break;
@@ -386,13 +411,17 @@ export class RealtimeWorkoutSessionManager {
         break;
       case "error":
         this.controller.appendEvent("realtime.error", "Realtime API error.", event.error ?? event);
-        if (event.error?.message) {
+        if (
+          event.error?.message &&
+          event.error?.code !== "conversation_already_has_active_response"
+        ) {
           this.controller.setConnection("error", {
             last_error: event.error.message
           });
         }
         break;
       case "response.done":
+        this.activeResponseId = null;
         await this.handleResponseDone(event.response);
         break;
       default:
@@ -401,15 +430,17 @@ export class RealtimeWorkoutSessionManager {
   }
 
   async handleResponseDone(response = {}) {
-    const functionCalls = (response.output ?? []).filter(
-      (item) => item.type === "function_call"
-    );
+    const functionCalls = (response.output ?? [])
+      .filter((item) => item.type === "function_call")
+      .sort((left, right) => toolPriority(left.name) - toolPriority(right.name));
 
     if (functionCalls.length === 0) {
       return;
     }
 
     const results = [];
+    const hadLogSet = functionCalls.some((call) => call.name === "log_set");
+    const hadRestTimer = functionCalls.some((call) => call.name === "start_rest_timer");
 
     for (const call of functionCalls) {
       const args = parseMaybeJson(call.arguments);
@@ -425,9 +456,23 @@ export class RealtimeWorkoutSessionManager {
       });
     }
 
+    let guardStartedRest = false;
+    let state = this.controller.publicState();
+    if (hadLogSet && !hadRestTimer && state.phase === "ready_for_rest") {
+      this.controller.appendEvent(
+        "guard.start_rest_timer",
+        "Model skipped start_rest_timer; server started the planned rest timer."
+      );
+      this.controller.startRestTimer({
+        seconds: this.controller.restSeconds,
+        label: "Rest"
+      });
+      guardStartedRest = true;
+      state = this.controller.publicState();
+    }
+
     await this.sendSessionUpdate();
 
-    const state = this.controller.publicState();
     const followup =
       state.phase === "completed"
         ? {
@@ -435,6 +480,12 @@ export class RealtimeWorkoutSessionManager {
               "Workout complete. Give a crisp spoken summary using the authoritative summary payload, mention the export targets, and stop.",
             metadata: { source: "summary_followup" }
           }
+        : guardStartedRest
+          ? {
+              instructions:
+                "The set is logged and the rest timer is now running. Tell Rupert to take 30 seconds, keep it brief, and offer one short SpaceX banter line.",
+              metadata: { source: "guard_rest_followup" }
+            }
         : {
             metadata: { source: "tool_followup" }
           };
@@ -467,5 +518,13 @@ export class RealtimeWorkoutSessionManager {
     }
 
     this.sidebandSocket.send(JSON.stringify(event));
+  }
+
+  async waitForResponseIdle(timeoutMs = 2000) {
+    const start = Date.now();
+
+    while (this.activeResponseId && Date.now() - start < timeoutMs) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
   }
 }

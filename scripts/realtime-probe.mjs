@@ -118,10 +118,15 @@ await waitFor(
 console.log("probe_opening:", lastAssistantLine(manager.getState()));
 
 await sendTextTurn(manager, "Done.");
-await waitFor(
-  () => manager.getState().phase === "resting" && manager.getState().completed_sets.length === 1,
-  "the first set log and rest timer"
-);
+try {
+  await waitFor(
+    () => manager.getState().phase === "resting" && manager.getState().completed_sets.length === 1,
+    "the first set log and rest timer"
+  );
+} catch (error) {
+  console.log("probe_first_set_state:", JSON.stringify(manager.getState(), null, 2));
+  throw error;
+}
 console.log(
   "probe_after_set_1:",
   JSON.stringify(
@@ -135,6 +140,7 @@ console.log(
   )
 );
 
+await wait(2500);
 manualAdvancePastRest(manager);
 await manager.sendSessionUpdate();
 await manager.sendRealtimeEvent({
@@ -160,6 +166,8 @@ try {
   );
 }
 
+await wait(1500);
+
 await sendTextTurn(manager, "Done with the squats, but my knee feels weird.");
 try {
   await waitFor(
@@ -183,6 +191,18 @@ console.log(
     2
   )
 );
+
+try {
+  await waitFor(
+    () => /plank/i.test(lastAssistantLine(manager.getState())),
+    "the spoken plank instruction",
+    10000
+  );
+} catch {
+  await wait(1500);
+}
+
+await wait(1000);
 
 await sendTextTurn(manager, "Done with the plank.");
 try {
