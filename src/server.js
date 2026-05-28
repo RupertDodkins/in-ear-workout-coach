@@ -26,9 +26,9 @@ const manager = new RealtimeWorkoutSessionManager({
   jsonPath,
   markdownPath,
   vadType: process.env.VAD_TYPE || "server_vad",
-  vadThreshold: Number(process.env.VAD_THRESHOLD || 0.65),
-  vadSilenceMs: Number(process.env.VAD_SILENCE_MS || 450),
-  vadPrefixMs: Number(process.env.VAD_PREFIX_MS || 250)
+  vadThreshold: Number(process.env.VAD_THRESHOLD || 0.99),
+  vadSilenceMs: Number(process.env.VAD_SILENCE_MS || 1500),
+  vadPrefixMs: Number(process.env.VAD_PREFIX_MS || 400)
 });
 
 const app = express();

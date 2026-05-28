@@ -311,13 +311,6 @@ export function WorkoutPanel({ state, onEndWorkout }) {
         <div className="workout-body">
           {isAwaiting ? (
             <div className="cta-hero">
-              <div className="plan-card" aria-label="Today's plan">
-                <div className="plan-card-row">
-                  <span className="plan-card-label">Today's plan</span>
-                  <span className="plan-card-tag">{planMetaLine}</span>
-                </div>
-              </div>
-
               <div className="cta-orb" aria-hidden="true">
                 <span className="cta-orb-ring" />
                 <span className="cta-orb-ring delay" />
@@ -327,6 +320,12 @@ export function WorkoutPanel({ state, onEndWorkout }) {
                 Say <em>"I'm ready"</em><br/>when you are.
               </div>
               <div className="cta-sub">Voice or text — your call.</div>
+              <div className="plan-card" aria-label="Today's plan">
+                <div className="plan-card-row">
+                  <span className="plan-card-label">Today's plan</span>
+                  <span className="plan-card-tag">{planMetaLine}</span>
+                </div>
+              </div>
               {previewExercises.length > 0 && (
                 <div className="cta-preview">
                   {previewExercises.map((name, i) => (
