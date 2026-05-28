@@ -34,15 +34,23 @@ async function runScenario(iteration) {
   assert.equal(rest.ok, true);
   assert.equal(controller.publicState().phase, "resting");
 
-  controller.markRestBanter("Yeah, give me the SpaceX update.");
+  const compressed = controller.compressRemainingWorkout({
+    minutes_left: 3,
+    reason: "time constraint"
+  });
+  assert.equal(compressed.ok, true);
+  assert.equal(controller.publicState().phase, "active_set");
+  assert.equal(controller.publicState().rest_timer.active, false);
+  assert.equal(controller.publicState().workout_plan[1].target_reps, 20);
+  assert.equal(controller.publicState().workout_plan[2].duration_seconds, 20);
+
   await wait(30);
 
-  assert.equal(timerTriggered, true);
-  assert.equal(controller.publicState().phase, "active_set");
+  assert.equal(timerTriggered, false);
 
   const second = controller.logSet({
     exercise: "squats",
-    actual_reps: 30,
+    actual_reps: 20,
     note: "knee discomfort"
   });
   assert.equal(second.ok, true);
@@ -65,21 +73,62 @@ async function runScenario(iteration) {
   const state = controller.publicState();
   assert.equal(state.phase, "completed");
   assert.equal(state.summary_payload.completed_sets.length, 3);
+  assert.equal(state.summary_payload.plan_adjustments.length, 1);
   assert.deepEqual(state.summary_payload.export_targets, [
     "Heavy",
     "Strava",
     "Apple Health"
   ]);
   assert.equal(state.summary_payload.coach_events.includes("started_rest_timer"), true);
-  assert.equal(state.summary_payload.coach_events.includes("continued_contextual_banter"), true);
-  assert.equal(state.summary_payload.coach_events.includes("redirected_after_timer"), true);
+  assert.equal(state.summary_payload.coach_events.includes("compressed_for_time"), true);
+  assert.equal(state.summary_payload.coach_events.includes("shortened_rest_for_time"), true);
   assert.equal(state.summary_payload.coach_events.includes("adapted_for_discomfort"), true);
 
   console.log(`scenario_${iteration}: ok`);
+}
+
+function runSubMinuteCompressionScenario() {
+  const tmpDir = mkdtempSync(path.join(os.tmpdir(), "verve-in-ear-short-"));
+
+  const controller = new DemoController({
+    jsonPath: path.join(tmpDir, "workout_session.json"),
+    markdownPath: path.join(tmpDir, "workout_session.md"),
+    setTimer: (fn) => setTimeout(fn, 10),
+    clearTimer: clearTimeout
+  });
+
+  const first = controller.logSet({
+    exercise: "push-ups",
+    actual_reps: 20
+  });
+  assert.equal(first.ok, true);
+
+  const rest = controller.startRestTimer({ seconds: 30, label: "demo rest" });
+  assert.equal(rest.ok, true);
+  assert.equal(controller.publicState().phase, "resting");
+
+  const compressed = controller.compressRemainingWorkout({
+    seconds_left: 10,
+    reason: "Only 10 seconds left"
+  });
+  assert.equal(compressed.ok, true);
+  assert.equal(controller.publicState().phase, "active_set");
+  assert.equal(controller.publicState().rest_timer.active, false);
+  assert.equal(controller.publicState().workout_plan.length, 2);
+  assert.equal(controller.publicState().workout_plan[1].exercise, "plank");
+  assert.equal(controller.publicState().workout_plan[1].duration_seconds, 10);
+  assert.equal(
+    controller.publicState().plan_adjustments[0].seconds_left,
+    10
+  );
+
+  console.log("scenario_sub_minute: ok");
 }
 
 for (let i = 1; i <= 3; i += 1) {
   await runScenario(i);
 }
 
-console.log("smoke_test: 3/3 scenarios passed");
+runSubMinuteCompressionScenario();
+
+console.log("smoke_test: 3/3 scenarios plus sub-minute compression passed");

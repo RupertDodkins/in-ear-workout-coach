@@ -34,6 +34,17 @@ const TOOL_META = {
       </Icon>
     ),
   },
+  compress_remaining_workout: {
+    klass: "update",
+    label: "compress_remaining_workout",
+    icon: (
+      <Icon>
+        <path d="M4 12h16" />
+        <path d="M8 8l-4 4 4 4" />
+        <path d="M16 8l4 4-4 4" />
+      </Icon>
+    ),
+  },
 };
 
 const fallbackToolMeta = (name) => ({
@@ -41,6 +52,19 @@ const fallbackToolMeta = (name) => ({
   label: name,
   icon: <Icon><circle cx="12" cy="12" r="9" /></Icon>,
 });
+
+function isDiagnosticEvent(type) {
+  return (
+    type.startsWith("realtime.response.") ||
+    type.startsWith("realtime.sideband.") ||
+    type.startsWith("realtime.input.") ||
+    type.startsWith("realtime.output_") ||
+    type.startsWith("realtime.turn.") ||
+    type.startsWith("realtime.transient") ||
+    type.startsWith("client.webrtc.") ||
+    type.startsWith("client.audio.")
+  );
+}
 
 function ToolArgs({ obj }) {
   if (!obj || typeof obj !== "object") return null;
@@ -84,6 +108,13 @@ function pickToolArgs(toolName, data) {
       duration_seconds: data.duration_seconds,
     };
   }
+  if (toolName === "compress_remaining_workout") {
+    return {
+      minutes_left: data.minutes_left,
+      seconds_left: data.seconds_left,
+      reason: data.reason,
+    };
+  }
   return data;
 }
 
@@ -106,6 +137,9 @@ function ToolResult({ toolName, phase }) {
   }
   if (toolName === "update_plan") {
     return <span className="arrow">→ plan revised</span>;
+  }
+  if (toolName === "compress_remaining_workout") {
+    return <span className="arrow">→ workout compressed</span>;
   }
   return null;
 }
@@ -151,6 +185,44 @@ function ToolCall({ entry, phase }) {
     );
   }
 
+  if (entry.type === "guard.log_set") {
+    return (
+      <div className="tool-call sys">
+        <div className="tool-icon sys">{BoltIcon}</div>
+        <div>
+          <div className="tool-head">
+            <span className="tool-name">server.guard.log_set</span>
+            <span className="tool-time">{time}</span>
+          </div>
+          <div className="tool-args"><ToolArgs obj={{ note: "model skipped — server filled in" }} /></div>
+          <div className="tool-result">
+            <span className="ok"><CheckIcon strokeWidth={3.5} />filled</span>
+            <span className="arrow">→ active set logged</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (entry.type === "guard.update_plan") {
+    return (
+      <div className="tool-call sys">
+        <div className="tool-icon sys">{BoltIcon}</div>
+        <div>
+          <div className="tool-head">
+            <span className="tool-name">server.guard.update_plan</span>
+            <span className="tool-time">{time}</span>
+          </div>
+          <div className="tool-args"><ToolArgs obj={{ note: "model skipped — server filled in" }} /></div>
+          <div className="tool-result">
+            <span className="ok"><CheckIcon strokeWidth={3.5} />filled</span>
+            <span className="arrow">→ low-impact fallback applied</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (entry.type === "realtime.error") {
     return (
       <div className="tool-call err">
@@ -158,6 +230,102 @@ function ToolCall({ entry, phase }) {
         <div>
           <div className="tool-head">
             <span className="tool-name">realtime.error</span>
+            <span className="tool-time">{time}</span>
+          </div>
+          <div className="tool-args">
+            <ToolArgs obj={entry.data || { message: entry.message }} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (entry.type === "realtime.response.created") {
+    return (
+      <div className="tool-call sys">
+        <div className="tool-icon sys">{BoltIcon}</div>
+        <div>
+          <div className="tool-head">
+            <span className="tool-name">realtime.response.created</span>
+            <span className="tool-time">{time}</span>
+          </div>
+          <div className="tool-args">
+            <ToolArgs obj={entry.data || { message: entry.message }} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (entry.type === "realtime.response.cancelled") {
+    return (
+      <div className="tool-call err">
+        <div className="tool-icon err">{AlertIcon}</div>
+        <div>
+          <div className="tool-head">
+            <span className="tool-name">realtime.response.cancelled</span>
+            <span className="tool-time">{time}</span>
+          </div>
+          <div className="tool-args">
+            <ToolArgs obj={entry.data || { message: entry.message }} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (entry.type === "realtime.response.done" || entry.type === "realtime.transient") {
+    return (
+      <div className="tool-call sys">
+        <div className="tool-icon sys">{entry.type === "realtime.transient" ? AlertIcon : CheckIcon}</div>
+        <div>
+          <div className="tool-head">
+            <span className="tool-name">{entry.type}</span>
+            <span className="tool-time">{time}</span>
+          </div>
+          <div className="tool-args">
+            <ToolArgs obj={entry.data || { message: entry.message }} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (entry.type === "workout.complete") {
+    return (
+      <div className="tool-call sys">
+        <div className="tool-icon sys">{CheckIcon}</div>
+        <div>
+          <div className="tool-head">
+            <span className="tool-name">workout.complete</span>
+            <span className="tool-time">{time}</span>
+          </div>
+          <div className="tool-args">
+            <ToolArgs
+              obj={{
+                completed_sets: entry.data?.completed_sets?.length,
+                export_targets: entry.data?.export_targets,
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (isDiagnosticEvent(entry.type)) {
+    const isErr =
+      entry.type.includes(".error") ||
+      entry.type.includes(".stalled") ||
+      entry.type.includes(".waiting");
+    return (
+      <div className={`tool-call ${isErr ? "err" : "sys"}`}>
+        <div className={`tool-icon ${isErr ? "err" : "sys"}`}>
+          {isErr ? AlertIcon : BoltIcon}
+        </div>
+        <div>
+          <div className="tool-head">
+            <span className="tool-name">{entry.type}</span>
             <span className="tool-time">{time}</span>
           </div>
           <div className="tool-args">
@@ -192,9 +360,14 @@ const RELEVANT_TYPES = new Set([
   "tool.log_set",
   "tool.start_rest_timer",
   "tool.update_plan",
+  "tool.compress_remaining_workout",
   "timer.rest.complete",
+  "guard.log_set",
   "guard.start_rest_timer",
+  "guard.update_plan",
+  "workout.complete",
   "realtime.error",
+  "realtime.transient",
 ]);
 
 export function AgentActivityPanel({ state }) {

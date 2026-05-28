@@ -34,28 +34,8 @@ function lastAssistantLine(state) {
   return [...state.transcripts].reverse().find((entry) => entry.role === "assistant")?.text ?? "";
 }
 
-function manualAdvancePastRest(manager) {
-  const controller = manager.controller;
-
-  if (controller.timerHandle) {
-    controller.clearTimer(controller.timerHandle);
-    controller.timerHandle = null;
-  }
-
-  controller.state.rest_timer = {
-    active: false,
-    seconds: null,
-    ends_at: null,
-    label: null
-  };
-  controller.state.phase = "active_set";
-  controller.addCoachEvent("redirected_after_timer");
-  controller.appendEvent("probe.timer_redirect", "Probe manually advanced past rest.");
-  controller.touch();
-  controller.persist();
-}
-
 async function sendTextTurn(manager, text) {
+  await manager.waitForResponseIdle();
   manager.controller.appendTranscript("user", text, "probe");
   await manager.sendRealtimeEvent({
     type: "conversation.item.create",
@@ -70,7 +50,7 @@ async function sendTextTurn(manager, text) {
       ]
     }
   });
-  await manager.sendRealtimeEvent({ type: "response.create" });
+  await manager.createResponse();
 }
 
 const tempDir = mkdtempSync(path.join(os.tmpdir(), "verve-realtime-probe-"));
@@ -140,33 +120,42 @@ console.log(
   )
 );
 
-await wait(2500);
-manualAdvancePastRest(manager);
-await manager.sendSessionUpdate();
-await manager.sendRealtimeEvent({
-  type: "response.create",
-  response: {
-    instructions:
-      "The rest timer just ended. Briefly redirect Rupert back to the workout. The next move is squats for 30 reps.",
-    metadata: {
-      source: "probe_timer_redirect"
-    }
-  }
-});
+await sendTextTurn(manager, "Actually, I only have 3 minutes now.");
 try {
   await waitFor(
-    () => /squats/i.test(lastAssistantLine(manager.getState())),
-    "the squat redirect after rest",
-    8000
+    () =>
+      manager.getState().phase === "active_set" &&
+      manager.getState().workout_plan[1]?.target_reps === 20 &&
+      manager.getState().coach_events.includes("compressed_for_time"),
+    "the time-compression replan"
   );
-  console.log("probe_after_timer:", lastAssistantLine(manager.getState()));
-} catch {
   console.log(
-    "probe_after_timer: no explicit redirect transcript observed in text-only probe; continuing with authoritative state."
+    "probe_after_compression:",
+    JSON.stringify(
+      {
+        phase: manager.getState().phase,
+        current_step: manager.getState().workout_plan[manager.getState().current_step_index],
+        coach_events: manager.getState().coach_events
+      },
+      null,
+      2
+    )
   );
+} catch (error) {
+  console.log("probe_compression_state:", JSON.stringify(manager.getState(), null, 2));
+  throw error;
 }
 
-await wait(1500);
+try {
+  await waitFor(
+    () => /squats|20 reps|shorten|3 minutes/i.test(lastAssistantLine(manager.getState())),
+    "the spoken compression redirect",
+    10000
+  );
+  console.log("probe_after_compression_line:", lastAssistantLine(manager.getState()));
+} catch {
+  await wait(1500);
+}
 
 await sendTextTurn(manager, "Done with the squats, but my knee feels weird.");
 try {

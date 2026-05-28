@@ -250,11 +250,15 @@ export function WorkoutPanel({ state, onEndWorkout }) {
   const stats = computeStats(state);
   const plan = state.workout_plan || [];
   const completed = state.completed_sets || [];
+  const planAdjustments = state.plan_adjustments || [];
   const total = plan.length;
   const pct = total ? Math.round((stats.setsCompleted / total) * 100) : 0;
   const ringOffset = (RING_CIRCUMFERENCE * (1 - pct / 100)).toFixed(2);
 
   const adaptedCount = plan.filter((s) => s.modified_from).length;
+  const compressedCount = planAdjustments.filter(
+    (adjustment) => adjustment.type === "compressed_remaining_workout"
+  ).length;
   const completedAll = state.summary_payload != null;
   const sessionStartMs = state.session_started_at ? new Date(state.session_started_at).getTime() : null;
   const lastCompleted = completed[completed.length - 1];
@@ -299,6 +303,7 @@ export function WorkoutPanel({ state, onEndWorkout }) {
             <div className="panel-sub">
               {total} steps
               {adaptedCount ? ` · adapted ${adaptedCount === 1 ? "once" : `${adaptedCount}x`}` : ""}
+              {compressedCount ? ` · compressed ${compressedCount === 1 ? "once" : `${compressedCount}x`}` : ""}
               {" · "}{fmtTime(stats.sessionSeconds)} total
             </div>
           </div>
@@ -437,6 +442,7 @@ export function WorkoutPanel({ state, onEndWorkout }) {
                       <span>
                         {stats.setsCompleted} sets · {stats.totalReps} reps
                         {adaptedCount ? " · adapted" : ""}
+                        {compressedCount ? " · time-aware replan" : ""}
                       </span>
                     </div>
                   </div>

@@ -8,6 +8,7 @@ Same-day OpenAI Voice Hack Night demo.
 - Opens a server-side sideband WebSocket to the same Realtime call for tools, state, and timer control.
 - Keeps authoritative workout state on the server and mirrors it to `workout_session.json` and `workout_session.md`.
 - Supports fallback text turns and canned quick-action buttons if live mic input is flaky.
+- Handles one deterministic real-world replan: compressing the remaining workout when Rupert suddenly has less time.
 
 ## Setup
 
@@ -19,23 +20,31 @@ Same-day OpenAI Voice Hack Night demo.
 npm install
 ```
 
-## Run
+## Run locally
 
 ```bash
-npm start
+npm run dev
 ```
 
 Open [http://localhost:3100](http://localhost:3100).
 If port `3100` is already taken on your machine, set `PORT` in `.env`.
+
+## Production-style run
+
+```bash
+npm run build
+npm start
+```
 
 ## Demo path
 
 1. Click `Connect Live Voice`.
 2. Say: `I'm ready for a quick workout.`
 3. Complete the first set and say `Done`.
-4. During rest, either talk normally or use the `SpaceX` quick-action fallback.
-5. When the timer expires, the coach redirects back to the next set.
-6. Use `Done, but my knee feels weird` on squats to trigger the plank fallback.
+4. During rest, either talk normally or use the `Voice API?` quick-action fallback.
+5. While resting, say `Actually, I only have 3 minutes now` to trigger the time-compression replan.
+6. The coach skips the rest, shortens the remaining plan, and redirects back to work.
+7. Use `Done, but my knee feels weird` on squats to trigger the plank fallback.
 
 ## Fallback path
 

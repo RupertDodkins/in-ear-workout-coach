@@ -34,6 +34,72 @@ const manager = new RealtimeWorkoutSessionManager({
 const app = express();
 app.use(express.json());
 
+function renderMissingClientHtml() {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Client Build Missing</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #15110f;
+        color: #f8f3ef;
+      }
+      main {
+        width: min(680px, calc(100vw - 32px));
+        padding: 28px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 20px;
+        background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+        box-shadow: 0 20px 80px rgba(0, 0, 0, 0.35);
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 28px;
+      }
+      p {
+        margin: 0 0 14px;
+        line-height: 1.5;
+        color: rgba(248, 243, 239, 0.84);
+      }
+      pre {
+        margin: 16px 0 0;
+        padding: 14px 16px;
+        border-radius: 14px;
+        overflow-x: auto;
+        background: rgba(0, 0, 0, 0.32);
+        color: #ffd9bf;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Client app not available at <code>/</code></h1>
+      <p>The API server is running, but the React client bundle was not found.</p>
+      <p><code>npm run probe</code> only verifies the Realtime tool loop. It does not launch the browser UI.</p>
+      <p>Use one of these local run paths:</p>
+      <pre><code>npm run dev
+
+# or, for a production-style local run
+npm run build
+npm start</code></pre>
+    </main>
+  </body>
+</html>`;
+}
+
 // --- API + artifact routes (registered before UI so they always win) ---
 
 app.get("/workout_session.json", (_req, res) => {
@@ -46,6 +112,24 @@ app.get("/workout_session.md", (_req, res) => {
 
 app.get("/api/state", (_req, res) => {
   res.json(manager.getState());
+});
+
+app.post("/api/client-event", (req, res) => {
+  try {
+    const type = String(req.body?.type || "").trim();
+    const message = String(req.body?.message || "").trim();
+    const data = req.body?.data ?? null;
+
+    if (!type || !message) {
+      res.status(400).json({ ok: false, error: "Missing type or message." });
+      return;
+    }
+
+    manager.logClientEvent(type, message, data);
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
 });
 
 app.post(
@@ -128,8 +212,11 @@ if (isDev) {
   });
 } else {
   console.warn(
-    "[server] client/dist not found and NODE_ENV=production — run `pnpm build` first."
+    "[server] client/dist not found and NODE_ENV=production — run `npm run build` first."
   );
+  app.get(/^\/(?!api\/|session$|workout_session\.).*/, (_req, res) => {
+    res.status(503).type("html").send(renderMissingClientHtml());
+  });
 }
 
 app.listen(port, () => {

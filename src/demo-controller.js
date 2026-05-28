@@ -18,6 +18,169 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function formatLogData(data) {
+  if (data == null) {
+    return "";
+  }
+
+  try {
+    const serialized = JSON.stringify(data);
+    return serialized.length > 480
+      ? `${serialized.slice(0, 477)}...`
+      : serialized;
+  } catch {
+    return String(data);
+  }
+}
+
+function shouldLogEvent(type) {
+  return (
+    type === "demo.reset" ||
+    type === "voice.paused" ||
+    type === "voice.resumed" ||
+    type === "workout.started" ||
+    type === "timer.rest.complete" ||
+    type === "workout.complete" ||
+    type === "guard.start_rest_timer" ||
+    type === "guard.log_set" ||
+    type === "guard.update_plan" ||
+    type === "realtime.error" ||
+    type === "realtime.session.ready" ||
+    type.startsWith("realtime.response.") ||
+    type.startsWith("realtime.sideband.") ||
+    type.startsWith("realtime.turn.") ||
+    type.startsWith("realtime.transient") ||
+    type.startsWith("client.webrtc.") ||
+    type.startsWith("client.audio.") ||
+    type.startsWith("tool.")
+  );
+}
+
+function clampNumber(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function extractTimeBudgetSeconds({ minutes_left, seconds_left, reason } = {}) {
+  if (typeof seconds_left === "number" && Number.isFinite(seconds_left)) {
+    return Math.round(seconds_left);
+  }
+
+  const reasonText = String(reason || "").toLowerCase();
+  const secondsMatch = reasonText.match(/(\d+)\s*(second|seconds|sec|secs)\b/);
+  if (secondsMatch) {
+    return Number(secondsMatch[1]);
+  }
+
+  const minutesMatch = reasonText.match(/(\d+)\s*(minute|minutes|min|mins)\b/);
+  if (minutesMatch) {
+    return Number(minutesMatch[1]) * 60;
+  }
+
+  if (typeof minutes_left === "number" && Number.isFinite(minutes_left)) {
+    return Math.round(minutes_left * 60);
+  }
+
+  return 180;
+}
+
+function buildTimeBoxedWrapStep(step, durationSeconds) {
+  const duration = clampNumber(Math.round(durationSeconds), 5, 20);
+
+  if (typeof step.duration_seconds === "number") {
+    return {
+      ...clone(step),
+      target_reps: null,
+      duration_seconds: Math.min(step.duration_seconds, duration),
+      rest_after: false,
+      note: appendNote(step.note, "compressed for time")
+    };
+  }
+
+  return {
+    ...clone(step),
+    exercise: "plank",
+    target_reps: null,
+    duration_seconds: duration,
+    rest_after: false,
+    modified_from: step.exercise,
+    reason: "time-boxed wrap",
+    note: `time-boxed wrap from ${step.exercise}`
+  };
+}
+
+function compressSingleStep(step, budgetSeconds) {
+  if (budgetSeconds <= 20) {
+    return buildTimeBoxedWrapStep(step, budgetSeconds);
+  }
+
+  const updatedStep = clone(step);
+
+  if (typeof updatedStep.target_reps === "number") {
+    if (/push-?ups/i.test(updatedStep.exercise)) {
+      updatedStep.target_reps = Math.min(
+        updatedStep.target_reps,
+        budgetSeconds <= 30 ? 10 : 15
+      );
+    } else if (/squats/i.test(updatedStep.exercise)) {
+      updatedStep.target_reps = Math.min(
+        updatedStep.target_reps,
+        budgetSeconds <= 30 ? 10 : 15
+      );
+    } else {
+      updatedStep.target_reps = Math.max(
+        8,
+        Math.min(updatedStep.target_reps, Math.round(updatedStep.target_reps * 0.5))
+      );
+    }
+  }
+
+  if (typeof updatedStep.duration_seconds === "number") {
+    updatedStep.duration_seconds = Math.min(
+      updatedStep.duration_seconds,
+      clampNumber(Math.round(budgetSeconds), 10, 45)
+    );
+  }
+
+  updatedStep.rest_after = false;
+  updatedStep.note = appendNote(updatedStep.note, "compressed for time");
+  return updatedStep;
+}
+
+function appendNote(note, addition) {
+  if (!addition) {
+    return note ?? null;
+  }
+
+  if (!note) {
+    return addition;
+  }
+
+  if (note.includes(addition)) {
+    return note;
+  }
+
+  return `${note}; ${addition}`;
+}
+
+function isKickoffCueForStep(text, step) {
+  if (!step) {
+    return false;
+  }
+
+  const normalized = String(text || "").toLowerCase();
+  const exerciseMatch = normalized.includes(String(step.exercise || "").toLowerCase());
+  const repsMatch =
+    typeof step.target_reps === "number" &&
+    normalized.includes(String(step.target_reps));
+  const durationMatch =
+    typeof step.duration_seconds === "number" &&
+    normalized.includes(String(step.duration_seconds)) &&
+    /\bsecond|seconds\b/.test(normalized);
+  const cueVerbMatch = /\b(first move|start|go|hit|do|begin)\b/.test(normalized);
+
+  return exerciseMatch && (durationMatch || repsMatch || cueVerbMatch);
+}
+
 function initialPlan() {
   return [
     {
@@ -83,7 +246,7 @@ export class DemoController {
       updated_at: now,
       status: "idle",
       phase: "awaiting_start",
-      preferred_banter_topic: "SpaceX launches",
+      preferred_banter_topic: "OpenAI voice API",
       session_started_at: null,
       connection: {
         status: "idle",
@@ -103,6 +266,7 @@ export class DemoController {
         label: null
       },
       completed_sets: [],
+      plan_adjustments: [],
       coach_events: [],
       transcripts: [],
       event_log: [],
@@ -141,6 +305,15 @@ export class DemoController {
   }
 
   appendEvent(type, message, data = null) {
+    if (shouldLogEvent(type)) {
+      const renderedData = formatLogData(data);
+      console.log(
+        renderedData
+          ? `[event][${type}] ${message} ${renderedData}`
+          : `[event][${type}] ${message}`
+      );
+    }
+
     this.state.event_log.push({
       ts: isoNow(),
       type,
@@ -166,8 +339,23 @@ export class DemoController {
       return;
     }
 
+    console.log(`[transcript][${source}][${role}] ${trimmed}`);
+
     if (!this.state.session_started_at) {
       this.state.session_started_at = isoNow();
+    }
+
+    if (
+      role === "assistant" &&
+      this.state.phase === "awaiting_start" &&
+      isKickoffCueForStep(trimmed, this.currentStep())
+    ) {
+      this.state.phase = "active_set";
+      this.state.status = "live";
+      this.appendEvent(
+        "workout.started",
+        "Workout moved into the first active set."
+      );
     }
 
     this.state.transcripts.push({
@@ -184,7 +372,7 @@ export class DemoController {
     if (
       this.state.phase === "resting" &&
       role === "assistant" &&
-      /spacex|starship|launch/i.test(trimmed)
+      /openai|realtime|voice api|webrtc|transcribe/i.test(trimmed)
     ) {
       this.addCoachEvent("continued_contextual_banter");
     }
@@ -320,6 +508,18 @@ export class DemoController {
   startRestTimer({ seconds, label = "rest" } = {}) {
     const duration = Math.max(1, Math.round(seconds ?? this.restSeconds));
 
+    if (this.state.rest_timer.active && this.state.phase === "resting") {
+      return {
+        ok: true,
+        already_active: true,
+        rest_timer: clone(this.state.rest_timer),
+        current_phase: this.state.phase,
+        next_step: this.currentStep(),
+        reply_guidance:
+          "The rest timer is already running. Briefly remind Rupert to keep resting and stop."
+      };
+    }
+
     if (this.timerHandle) {
       this.clearTimer(this.timerHandle);
       this.timerHandle = null;
@@ -396,7 +596,7 @@ export class DemoController {
       current_phase: this.state.phase,
       next_step: this.currentStep(),
       reply_guidance:
-        "Tell Rupert to rest, keep banter brief, and offer a quick SpaceX opener."
+        "Tell Rupert to rest, keep banter brief, and offer a quick OpenAI voice API opener."
     };
   }
 
@@ -414,21 +614,30 @@ export class DemoController {
       };
     }
 
+    const reasonText = `${reason ?? ""} ${note ?? ""}`.toLowerCase();
+    const forcePlankFallback =
+      /\b(knee|pain|hurt|hurts|weird|discomfort|strain|twinge)\b/.test(reasonText);
+    const resolvedExercise = forcePlankFallback ? "plank" : replacement_exercise;
+    const resolvedDuration = forcePlankFallback ? 30 : duration_seconds;
+    const resolvedNote = forcePlankFallback
+      ? "low-impact fallback"
+      : note ?? reason ?? "adapted due to discomfort";
+
     const updatedStep = {
       ...step,
-      exercise: replacement_exercise,
+      exercise: resolvedExercise,
       target_reps: null,
-      duration_seconds,
+      duration_seconds: resolvedDuration,
       modified_from: step.exercise,
       reason: "low-impact fallback",
-      note: note ?? reason ?? "adapted due to discomfort"
+      note: resolvedNote
     };
 
     this.state.workout_plan[this.state.current_step_index] = updatedStep;
     this.addCoachEvent("adapted_for_discomfort");
     this.appendEvent(
       "tool.update_plan",
-      `Updated next move to ${replacement_exercise}.`,
+      `Updated next move to ${resolvedExercise}.`,
       updatedStep
     );
     this.touch();
@@ -443,10 +652,123 @@ export class DemoController {
     };
   }
 
+  compressRemainingWorkout({ minutes_left, seconds_left, reason } = {}) {
+    const remainingSteps = this.state.workout_plan.slice(this.state.current_step_index);
+    if (remainingSteps.length === 0) {
+      return {
+        ok: false,
+        error: "No remaining workout steps are available to compress."
+      };
+    }
+
+    const remainingBudgetSeconds = clampNumber(
+      extractTimeBudgetSeconds({ minutes_left, seconds_left, reason }),
+      5,
+      180
+    );
+    const normalizedMinutes = Math.max(
+      1,
+      Math.ceil(remainingBudgetSeconds / 60)
+    );
+    const previousRemainingSteps = clone(remainingSteps);
+    const shouldSkipRest =
+      this.state.rest_timer.active || this.state.phase === "ready_for_rest";
+
+    if (this.timerHandle) {
+      this.clearTimer(this.timerHandle);
+      this.timerHandle = null;
+    }
+
+    if (shouldSkipRest) {
+      this.state.rest_timer = {
+        active: false,
+        seconds: null,
+        ends_at: null,
+        label: null
+      };
+      this.state.phase = "active_set";
+      this.addCoachEvent("shortened_rest_for_time");
+    }
+
+    let compressedSteps;
+    if (remainingBudgetSeconds < 60) {
+      compressedSteps = [compressSingleStep(remainingSteps[0], remainingBudgetSeconds)];
+    } else {
+      compressedSteps = remainingSteps.map((step) => {
+        const updatedStep = clone(step);
+
+        if (typeof updatedStep.target_reps === "number") {
+          if (/push-?ups/i.test(updatedStep.exercise)) {
+            updatedStep.target_reps = Math.min(updatedStep.target_reps, 15);
+          } else if (/squats/i.test(updatedStep.exercise)) {
+            updatedStep.target_reps = Math.min(updatedStep.target_reps, 20);
+          } else {
+            updatedStep.target_reps = Math.max(
+              8,
+              Math.min(updatedStep.target_reps, Math.round(updatedStep.target_reps * 0.67))
+            );
+          }
+        }
+
+        if (typeof updatedStep.duration_seconds === "number") {
+          updatedStep.duration_seconds = Math.min(updatedStep.duration_seconds, 20);
+        }
+
+        updatedStep.rest_after = false;
+        updatedStep.note = appendNote(updatedStep.note, "compressed for time");
+        return updatedStep;
+      });
+    }
+
+    this.state.workout_plan.splice(
+      this.state.current_step_index,
+      remainingSteps.length,
+      ...compressedSteps
+    );
+
+    const adjustment = {
+      ts: isoNow(),
+      type: "compressed_remaining_workout",
+      reason: reason ?? "time constraint",
+      minutes_left: normalizedMinutes,
+      seconds_left: remainingBudgetSeconds,
+      skipped_rest: shouldSkipRest,
+      previous_remaining_steps: previousRemainingSteps,
+      new_remaining_steps: clone(compressedSteps)
+    };
+
+    this.state.plan_adjustments.push(adjustment);
+    this.addCoachEvent("compressed_for_time");
+    const compressionLabel =
+      remainingBudgetSeconds < 60
+        ? `${remainingBudgetSeconds} seconds left`
+        : `${normalizedMinutes} minutes left`;
+    this.appendEvent(
+      "tool.compress_remaining_workout",
+      `Compressed the remaining workout for ${compressionLabel}.`,
+      adjustment
+    );
+    this.touch();
+    this.persist();
+
+    return {
+      ok: true,
+      current_phase: this.state.phase,
+      current_step: this.currentStep(),
+      remaining_steps: clone(this.state.workout_plan.slice(this.state.current_step_index)),
+      rest_skipped: shouldSkipRest,
+      minutes_left: normalizedMinutes,
+      seconds_left: remainingBudgetSeconds,
+      reply_guidance:
+        "Acknowledge the time constraint, explain the shortened remaining workout, and direct Rupert to the current step immediately."
+    };
+  }
+
   buildSummaryPayload() {
     return {
       session_type: "voice_guided_workout",
       completed_sets: clone(this.state.completed_sets),
+      plan_adjustments: clone(this.state.plan_adjustments),
       coach_events: clone(this.state.coach_events),
       export_targets: EXPORT_TARGETS
     };
@@ -511,6 +833,12 @@ ${JSON.stringify(state.rest_timer, null, 2)}
 
 \`\`\`json
 ${JSON.stringify(state.completed_sets, null, 2)}
+\`\`\`
+
+## Plan Adjustments
+
+\`\`\`json
+${JSON.stringify(state.plan_adjustments, null, 2)}
 \`\`\`
 
 ## Coach Events
