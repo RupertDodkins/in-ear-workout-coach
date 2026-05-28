@@ -3,3 +3,4 @@ node_modules
 workout_session.json
 workout_session.md
 .railway
+client/dist

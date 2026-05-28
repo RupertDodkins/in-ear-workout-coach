@@ -77,13 +77,15 @@ export class DemoController {
       status: "idle",
       phase: "awaiting_start",
       preferred_banter_topic: "SpaceX launches",
+      session_started_at: null,
       connection: {
         status: "idle",
         mode: "webrtc_sideband",
         model: null,
         voice: null,
         call_id: null,
-        last_error: null
+        last_error: null,
+        paused: false
       },
       workout_plan: initialPlan(),
       current_step_index: 0,
@@ -157,6 +159,10 @@ export class DemoController {
       return;
     }
 
+    if (!this.state.session_started_at) {
+      this.state.session_started_at = isoNow();
+    }
+
     this.state.transcripts.push({
       ts: isoNow(),
       role,
@@ -219,6 +225,24 @@ export class DemoController {
         ? `model_requested_${exercise}`
         : null);
 
+    const loggedAt = isoNow();
+
+    if (!this.state.session_started_at) {
+      this.state.session_started_at = loggedAt;
+    }
+
+    const prevSet =
+      this.state.completed_sets[this.state.completed_sets.length - 1] ?? null;
+    if (prevSet && prevSet.rest_started_at && !prevSet.rest_ended_at) {
+      prevSet.rest_ended_at = loggedAt;
+      prevSet.rest_taken_seconds = Math.max(
+        0,
+        Math.round(
+          (Date.now() - new Date(prevSet.rest_started_at).getTime()) / 1000
+        )
+      );
+    }
+
     const completedSet = {
       exercise: step.exercise,
       target_reps: step.target_reps ?? null,
@@ -233,7 +257,12 @@ export class DemoController {
         rpe ??
         (resolvedNote && /hard|rough|tough/i.test(resolvedNote) ? 8 : null),
       note: resolvedNote ?? null,
-      reason: step.reason ?? null
+      reason: step.reason ?? null,
+      logged_at: loggedAt,
+      planned_rest_seconds: step.rest_after ? this.restSeconds : null,
+      rest_started_at: null,
+      rest_ended_at: null,
+      rest_taken_seconds: null
     };
 
     step.status = "completed";
@@ -289,6 +318,7 @@ export class DemoController {
       this.timerHandle = null;
     }
 
+    const restStartedAt = isoNow();
     const endsAt = new Date(Date.now() + duration * 1000).toISOString();
     this.state.phase = "resting";
     this.state.rest_timer = {
@@ -297,6 +327,16 @@ export class DemoController {
       ends_at: endsAt,
       label
     };
+
+    const lastSet =
+      this.state.completed_sets[this.state.completed_sets.length - 1];
+    if (lastSet) {
+      lastSet.planned_rest_seconds = duration;
+      lastSet.rest_started_at = restStartedAt;
+      lastSet.rest_ended_at = null;
+      lastSet.rest_taken_seconds = null;
+    }
+
     this.addCoachEvent("started_rest_timer");
     this.appendEvent(
       "tool.start_rest_timer",
@@ -312,6 +352,20 @@ export class DemoController {
         ends_at: null,
         label: null
       };
+
+      const restingSet =
+        this.state.completed_sets[this.state.completed_sets.length - 1];
+      if (restingSet && restingSet.rest_started_at && !restingSet.rest_ended_at) {
+        const endedAt = isoNow();
+        restingSet.rest_ended_at = endedAt;
+        restingSet.rest_taken_seconds = Math.max(
+          0,
+          Math.round(
+            (Date.now() - new Date(restingSet.rest_started_at).getTime()) / 1000
+          )
+        );
+      }
+
       if (this.currentStep()) {
         this.state.phase = "active_set";
       } else {

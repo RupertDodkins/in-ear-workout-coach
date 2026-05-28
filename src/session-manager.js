@@ -136,6 +136,8 @@ export class RealtimeWorkoutSessionManager {
     this.sidebandSocket = null;
     this.callId = null;
     this.activeResponseId = null;
+    this.responseInFlight = false;
+    this.paused = false;
     this.controller = new DemoController({
       jsonPath,
       markdownPath,
@@ -154,7 +156,34 @@ export class RealtimeWorkoutSessionManager {
     await this.closeSideband("reset");
     this.callId = null;
     this.activeResponseId = null;
+    this.responseInFlight = false;
+    this.paused = false;
     this.controller.reset();
+  }
+
+  async pauseVoice() {
+    if (!this.sidebandSocket) {
+      throw new Error("Live Realtime session is not connected.");
+    }
+    this.paused = true;
+    await this.interruptActiveResponse();
+    this.controller.setConnection(this.controller.publicState().connection.status, {
+      paused: true
+    });
+    this.controller.appendEvent("voice.paused", "Voice paused by user.");
+    this.controller.persist();
+  }
+
+  async resumeVoice() {
+    if (!this.sidebandSocket) {
+      throw new Error("Live Realtime session is not connected.");
+    }
+    this.paused = false;
+    this.controller.setConnection(this.controller.publicState().connection.status, {
+      paused: false
+    });
+    this.controller.appendEvent("voice.resumed", "Voice resumed by user.");
+    this.controller.persist();
   }
 
   async createWebRtcSession(offerSdp) {
@@ -227,6 +256,9 @@ export class RealtimeWorkoutSessionManager {
           voice: this.voice
         },
         input: {
+          transcription: {
+            model: "gpt-4o-mini-transcribe"
+          },
           turn_detection:
             this.vadType === "server_vad"
               ? {
@@ -340,9 +372,7 @@ export class RealtimeWorkoutSessionManager {
 
     this.controller.appendTranscript("user", text, "fallback_text");
 
-    await this.sendRealtimeEvent({ type: "response.cancel" });
-    await this.sendRealtimeEvent({ type: "output_audio_buffer.clear" });
-    await this.waitForResponseIdle();
+    await this.interruptActiveResponse();
     await this.sendRealtimeEvent({
       type: "conversation.item.create",
       item: {
@@ -356,7 +386,29 @@ export class RealtimeWorkoutSessionManager {
         ]
       }
     });
-    await this.sendRealtimeEvent({ type: "response.create" });
+    await this.createResponse();
+  }
+
+  async interruptActiveResponse() {
+    if (this.activeResponseId || this.responseInFlight) {
+      await this.sendRealtimeEvent({ type: "response.cancel" });
+      await this.sendRealtimeEvent({ type: "output_audio_buffer.clear" });
+      await this.waitForResponseIdle();
+    }
+  }
+
+  async createResponse(payload = null) {
+    await this.waitForResponseIdle();
+    this.responseInFlight = true;
+    const event = payload
+      ? { type: "response.create", response: payload }
+      : { type: "response.create" };
+    try {
+      await this.sendRealtimeEvent(event);
+    } catch (error) {
+      this.responseInFlight = false;
+      throw error;
+    }
   }
 
   async handleTimerExpired() {
@@ -370,21 +422,16 @@ export class RealtimeWorkoutSessionManager {
       return;
     }
 
-    await this.sendRealtimeEvent({ type: "response.cancel" });
-    await this.sendRealtimeEvent({ type: "output_audio_buffer.clear" });
-    await this.waitForResponseIdle();
+    await this.interruptActiveResponse();
     await this.sendSessionUpdate();
-    await this.sendRealtimeEvent({
-      type: "response.create",
-      response: {
-        instructions: `The rest timer just ended. Briefly cut off the banter and direct Rupert back to the workout immediately. The next move is ${nextStep.exercise}. ${
-          nextStep.target_reps != null
-            ? `Tell him to do ${nextStep.target_reps} reps.`
-            : `Tell him to do ${nextStep.duration_seconds} seconds.`
-        } One sentence if possible.`,
-        metadata: {
-          source: "rest_timer_complete"
-        }
+    await this.createResponse({
+      instructions: `The rest timer just ended. Briefly cut off the banter and direct Rupert back to the workout immediately. The next move is ${nextStep.exercise}. ${
+        nextStep.target_reps != null
+          ? `Tell him to do ${nextStep.target_reps} reps.`
+          : `Tell him to do ${nextStep.duration_seconds} seconds.`
+      } One sentence if possible.`,
+      metadata: {
+        source: "rest_timer_complete"
       }
     });
   }
@@ -398,9 +445,11 @@ export class RealtimeWorkoutSessionManager {
     switch (event.type) {
       case "response.created":
         this.activeResponseId = event.response?.id ?? "active";
+        this.responseInFlight = true;
         break;
       case "response.cancelled":
         this.activeResponseId = null;
+        this.responseInFlight = false;
         break;
       case "conversation.item.input_audio_transcription.completed":
         this.controller.appendTranscript("user", event.transcript, "voice");
@@ -409,19 +458,29 @@ export class RealtimeWorkoutSessionManager {
       case "response.output_text.done":
         this.controller.appendTranscript("assistant", event.transcript ?? event.text, "voice");
         break;
-      case "error":
+      case "error": {
+        const code = event.error?.code;
+        const transient =
+          code === "conversation_already_has_active_response" ||
+          code === "response_cancel_not_active";
+        if (transient) {
+          if (code === "response_cancel_not_active") {
+            this.activeResponseId = null;
+            this.responseInFlight = false;
+          }
+          break;
+        }
         this.controller.appendEvent("realtime.error", "Realtime API error.", event.error ?? event);
-        if (
-          event.error?.message &&
-          event.error?.code !== "conversation_already_has_active_response"
-        ) {
+        if (event.error?.message) {
           this.controller.setConnection("error", {
             last_error: event.error.message
           });
         }
         break;
+      }
       case "response.done":
         this.activeResponseId = null;
+        this.responseInFlight = false;
         await this.handleResponseDone(event.response);
         break;
       default:
@@ -490,10 +549,7 @@ export class RealtimeWorkoutSessionManager {
             metadata: { source: "tool_followup" }
           };
 
-    await this.sendRealtimeEvent({
-      type: "response.create",
-      response: followup
-    });
+    await this.createResponse(followup);
   }
 
   async executeToolCall(name, args) {
@@ -520,11 +576,16 @@ export class RealtimeWorkoutSessionManager {
     this.sidebandSocket.send(JSON.stringify(event));
   }
 
-  async waitForResponseIdle(timeoutMs = 2000) {
+  async waitForResponseIdle(timeoutMs = 2500) {
     const start = Date.now();
 
-    while (this.activeResponseId && Date.now() - start < timeoutMs) {
+    while ((this.activeResponseId || this.responseInFlight) && Date.now() - start < timeoutMs) {
       await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    if (Date.now() - start >= timeoutMs) {
+      this.activeResponseId = null;
+      this.responseInFlight = false;
     }
   }
 }

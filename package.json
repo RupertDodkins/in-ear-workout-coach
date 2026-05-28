@@ -4,14 +4,26 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "node --watch src/server.js",
+    "start": "NODE_ENV=production node src/server.js",
+    "dev": "node --watch-path=./src src/server.js",
+    "build": "vite build",
     "smoke": "node scripts/smoke-test.mjs",
-    "probe": "node scripts/realtime-probe.mjs"
+    "probe": "node scripts/realtime-probe.mjs",
+    "deploy": "railway up --detach"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0",
+    "vite": "^6.0.7"
   }
 }
