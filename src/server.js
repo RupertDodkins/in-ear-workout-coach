@@ -80,6 +80,11 @@ app.post("/api/resume", async (_req, res) => {
   catch (error) { res.status(500).json({ ok: false, error: error.message }); }
 });
 
+app.post("/api/end", async (_req, res) => {
+  try { await manager.endSession(); res.json({ ok: true }); }
+  catch (error) { res.status(500).json({ ok: false, error: error.message }); }
+});
+
 app.post("/api/fallback-turn", async (req, res) => {
   try {
     const text = String(req.body?.text || "").trim();
@@ -129,6 +134,6 @@ if (isDev) {
 
 app.listen(port, () => {
   console.log(
-    `Verve In-Ear Workout Coach listening on http://localhost:${port} (${isDev ? "dev" : "production"})`
+    `In-Ear Workout Coach listening on http://localhost:${port} (${isDev ? "dev" : "production"})`
   );
 });

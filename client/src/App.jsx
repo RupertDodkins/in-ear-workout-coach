@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useMemo } from "react";
-import { BrowserRouter, Outlet, Route, Routes, useOutletContext } from "react-router-dom";
+import { useCallback, useEffect } from "react";
+import { PHASE_LABEL } from "./lib/constants.js";
 import { useSession, useTick } from "./hooks/useSession.js";
 import { useVoice } from "./hooks/useVoice.js";
 import { TopStrip } from "./components/TopStrip.jsx";
-import { TabNav } from "./components/TabNav.jsx";
 import { WorkoutPanel } from "./components/WorkoutPanel.jsx";
 import { ConversationPanel } from "./components/ConversationPanel.jsx";
 import { AgentActivityPanel } from "./components/AgentActivityPanel.jsx";
+import { PhoneFrame } from "./components/PhoneFrame.jsx";
+import { ConversationFlow } from "./components/ConversationFlow.jsx";
 
-function Layout() {
-  const { state, sendFallback, reset, refresh, pauseVoice, resumeVoice } = useSession();
+export function App() {
+  const { state, sendFallback, reset, refresh, pauseVoice, resumeVoice, endSession } = useSession();
   const voice = useVoice({ onAfterConnect: refresh });
   useTick(1000);
 
@@ -23,6 +24,21 @@ function Layout() {
     try { await voice.connect(); }
     catch (err) { alert(`Voice connection failed: ${err.message}`); }
   }, [voice]);
+
+  // Auto-connect voice on first load so the user-facing phone screen
+  // has no manual "connect" step. Operator controls live in the side panel.
+  useEffect(() => {
+    if (voice.status === "idle") void handleConnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleToggleVoice = useCallback(async () => {
+    if (voice.status === "live" || voice.status === "connecting") {
+      voice.disconnect();
+    } else {
+      await handleConnect();
+    }
+  }, [voice, handleConnect]);
 
   const handleReset = useCallback(async () => {
     voice.disconnect();
@@ -43,9 +59,10 @@ function Layout() {
     }
   }, [voice, pauseVoice, resumeVoice]);
 
-  const ctx = useMemo(() => ({
-    state, voice, sendFallback, onConnectVoice: handleConnect,
-  }), [state, voice, sendFallback, handleConnect]);
+  const handleEndWorkout = useCallback(async () => {
+    try { await endSession(); }
+    catch (err) { alert(err.message); }
+  }, [endSession]);
 
   if (!state) {
     return (
@@ -60,56 +77,53 @@ function Layout() {
     : null;
 
   return (
-    <div className="app app--split">
-      <TopStrip
-        state={state}
-        voice={voice}
-        onConnect={handleConnect}
-        onReset={handleReset}
-        onTogglePause={handleTogglePause}
-        sessionClockSeconds={sessionClockSeconds}
-      />
-      <TabNav state={state} />
-      <main className="stage stage--single">
-        <Outlet context={ctx} />
-      </main>
+    <div className="app app--phone">
+      <header className="page-header">
+        <h1 className="page-title">In-Ear Workout Coach</h1>
+      </header>
+      <div className="app-row">
+        <aside className="side-panel side-panel--left" aria-label="Conversation">
+          <div className="side-panel-tag">Conversation</div>
+          <div className="side-panel-body">
+            <ConversationPanel
+              state={state}
+              voice={voice}
+              onSendFallback={sendFallback}
+              onToggleVoice={handleToggleVoice}
+              onTogglePause={handleTogglePause}
+              onReset={handleReset}
+            />
+          </div>
+        </aside>
+
+        <PhoneFrame voiceLive={voice.status === "live"} voicePaused={voice.paused}>
+          <div className="phone-app">
+            <TopStrip
+              state={state}
+              voice={voice}
+              sessionClockSeconds={sessionClockSeconds}
+            />
+            <main className="stage stage--single">
+              <WorkoutPanel state={state} onEndWorkout={handleEndWorkout} />
+            </main>
+          </div>
+        </PhoneFrame>
+
+        <aside className="side-panel side-panel--right" aria-label="Agent activity">
+          <div className="side-panel-tag">
+            Activity
+            <span className="side-panel-phase" data-phase={state.phase}>
+              <span className="dot" />
+              {PHASE_LABEL[state.phase] ?? state.phase}
+            </span>
+          </div>
+          <div className="side-panel-body">
+            <AgentActivityPanel state={state} />
+          </div>
+        </aside>
+      </div>
+
+      <ConversationFlow state={state} />
     </div>
-  );
-}
-
-function WorkoutScreen() {
-  const { state } = useOutletContext();
-  return <WorkoutPanel state={state} />;
-}
-
-function ConversationScreen() {
-  const { state, voice, sendFallback, onConnectVoice } = useOutletContext();
-  return (
-    <ConversationPanel
-      state={state}
-      voice={voice}
-      onSendFallback={sendFallback}
-      onConnectVoice={onConnectVoice}
-    />
-  );
-}
-
-function ActivityScreen() {
-  const { state } = useOutletContext();
-  return <AgentActivityPanel state={state} />;
-}
-
-export function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route element={<Layout />}>
-          <Route index element={<WorkoutScreen />} />
-          <Route path="conversation" element={<ConversationScreen />} />
-          <Route path="activity" element={<ActivityScreen />} />
-          <Route path="*" element={<WorkoutScreen />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
   );
 }

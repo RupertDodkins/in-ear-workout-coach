@@ -1,6 +1,6 @@
-# Verve In-Ear Workout Coach
+# In-Ear Workout Coach
 
-Same-day OpenAI Voice Hack Night demo for Verve Health.
+Same-day OpenAI Voice Hack Night demo.
 
 ## What it does
 

@@ -68,7 +68,16 @@ export function useSession() {
     await refresh();
   }, [refresh]);
 
-  return { state, error, refresh, sendFallback, reset, pauseVoice, resumeVoice };
+  const endSession = useCallback(async () => {
+    const res = await fetch("/api/end", { method: "POST" });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      throw new Error(payload.error || "End session failed.");
+    }
+    await refresh();
+  }, [refresh]);
+
+  return { state, error, refresh, sendFallback, reset, pauseVoice, resumeVoice, endSession };
 }
 
 // Returns a value that updates every `intervalMs` so time-derived UI re-renders.

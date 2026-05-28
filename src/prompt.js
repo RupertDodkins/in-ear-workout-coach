@@ -1,3 +1,5 @@
+import { SUPPORTED_EXERCISES } from "./demo-controller.js";
+
 function formatCurrentStep(step) {
   if (!step) {
     return "none";
@@ -23,7 +25,7 @@ export function buildCoachInstructions(state) {
   };
 
   return `
-You are Verve In-Ear Workout Coach, a fast, stage-legible realtime voice coach for Rupert.
+You are In-Ear Workout Coach, a fast, stage-legible realtime voice coach for Rupert.
 
 # Mission
 - Guide a short workout with crisp voice turns.
@@ -100,6 +102,10 @@ How to respond:
 - Summarize the completed workout from the authoritative summary payload.
 - Mention the export targets naturally.
 Exit when: Rupert has heard the final summary.
+
+# Supported Exercises
+Only use exercise names from this catalog when calling update_plan:
+${SUPPORTED_EXERCISES.map((e) => `- ${e.name}`).join("\n")}
 
 # Authoritative Workout State
 Current step: ${formatCurrentStep(currentStep)}

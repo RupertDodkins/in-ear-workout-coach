@@ -1,17 +1,9 @@
-export const PHASE_ORDER = [
-  "awaiting_start",
-  "active_set",
-  "ready_for_rest",
-  "resting",
-  "completed",
-];
-
 export const PHASE_LABEL = {
-  awaiting_start: "awaiting_start",
-  active_set: "active_set",
-  ready_for_rest: "ready_for_rest",
-  resting: "resting",
-  completed: "completed",
+  awaiting_start: "Awaiting start",
+  active_set: "Active set",
+  ready_for_rest: "Ready for rest",
+  resting: "Resting",
+  completed: "Completed",
 };
 
 export const COACH_EVENT_DOT = {

@@ -1,7 +1,14 @@
 import { writeFileSync } from "node:fs";
 
-const DEMO_NAME = "Verve In-Ear Workout Coach";
+const DEMO_NAME = "In-Ear Workout Coach";
 const EXPORT_TARGETS = ["Heavy", "Strava", "Apple Health"];
+
+export const SUPPORTED_EXERCISES = [
+  { name: "push-ups", default_target_reps: 20, default_duration_seconds: null },
+  { name: "squats", default_target_reps: 30, default_duration_seconds: null },
+  { name: "mountain climbers", default_target_reps: null, default_duration_seconds: 30 },
+  { name: "plank", default_target_reps: null, default_duration_seconds: 30 }
+];
 
 function isoNow() {
   return new Date().toISOString();
@@ -447,6 +454,26 @@ export class DemoController {
 
   touch() {
     this.state.updated_at = isoNow();
+  }
+
+  endSession() {
+    if (this.timerHandle) {
+      this.clearTimer(this.timerHandle);
+      this.timerHandle = null;
+    }
+    this.state.phase = "completed";
+    this.state.status = "completed";
+    this.state.rest_timer = {
+      active: false,
+      seconds: null,
+      ends_at: null,
+      label: null
+    };
+    this.state.summary_payload = this.buildSummaryPayload();
+    this.appendEvent("workout.complete", "Workout ended by user.", this.state.summary_payload);
+    this.touch();
+    this.persist();
+    return this.publicState();
   }
 
   persist() {

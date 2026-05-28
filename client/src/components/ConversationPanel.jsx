@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { QUICK_CHIPS } from "../lib/constants.js";
 import { fmtClock } from "../lib/format.js";
-import { ClockIcon, MicIcon, SendIcon } from "./Icon.jsx";
+import { ClockIcon, SendIcon } from "./Icon.jsx";
 
 function Bubble({ entry }) {
   const ts = fmtClock(entry.ts);
@@ -37,7 +37,7 @@ function Bubble({ entry }) {
   );
 }
 
-export function ConversationPanel({ state, voice, onSendFallback, onConnectVoice }) {
+export function ConversationPanel({ state, voice, onSendFallback, onToggleVoice, onTogglePause, onReset }) {
   const transcripts = state.transcripts || [];
   const bodyRef = useRef(null);
   const [input, setInput] = useState("");
@@ -91,6 +91,29 @@ export function ConversationPanel({ state, voice, onSendFallback, onConnectVoice
           <div className={modeClass}>{modeText}</div>
         </div>
 
+        <div className="operator-controls">
+          <button
+            type="button"
+            className="op-btn"
+            onClick={onToggleVoice}
+            disabled={status === "connecting"}
+          >
+            {status === "connecting" ? "Connecting…" : status === "live" ? "Disconnect" : "Connect"}
+          </button>
+          <button
+            type="button"
+            className="op-btn"
+            onClick={onTogglePause}
+            disabled={status !== "live"}
+            data-active={voice.paused ? "true" : "false"}
+          >
+            {voice.paused ? "Resume" : "Pause"}
+          </button>
+          <button type="button" className="op-btn op-btn--ghost" onClick={onReset}>
+            Reset
+          </button>
+        </div>
+
         <div className="convo-body" ref={bodyRef}>
           {transcripts.length === 0 ? (
             <div className="empty-state">
@@ -128,15 +151,6 @@ export function ConversationPanel({ state, voice, onSendFallback, onConnectVoice
               value={input}
               onChange={(e) => setInput(e.target.value)}
             />
-            <button
-              type="button"
-              className="mic-btn"
-              title={status === "live" ? "Voice connected" : "Connect voice"}
-              data-live={status === "live" ? "true" : "false"}
-              onClick={onConnectVoice}
-            >
-              {MicIcon}
-            </button>
             <button type="submit" className="send-btn" title="Send" disabled={sending}>
               {SendIcon}
             </button>

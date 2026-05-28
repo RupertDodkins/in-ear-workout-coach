@@ -204,7 +204,6 @@ export function AgentActivityPanel({ state }) {
   const toolCount = relevant.filter((e) => e.type.startsWith("tool.")).length;
   const total = relevant.length;
   const ordered = [...relevant].slice(-12).reverse();
-  const model = state.connection?.model || "gpt-realtime-2";
 
   return (
     <section className="col col-right">
@@ -216,7 +215,6 @@ export function AgentActivityPanel({ state }) {
               {total} event{total === 1 ? "" : "s"} · {toolCount} tool call{toolCount === 1 ? "" : "s"}
             </div>
           </div>
-          <div className="pill blue">{model}</div>
         </div>
 
         <div className="tools-body">

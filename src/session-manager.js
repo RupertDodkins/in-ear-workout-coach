@@ -167,6 +167,10 @@ export class RealtimeWorkoutSessionManager {
     }
     this.paused = true;
     await this.interruptActiveResponse();
+    // Push turn_detection=null so the API stops transcribing and auto-responding,
+    // then drop any audio already buffered server-side.
+    await this.sendSessionUpdate();
+    await this.sendRealtimeEvent({ type: "input_audio_buffer.clear" });
     this.controller.setConnection(this.controller.publicState().connection.status, {
       paused: true
     });
@@ -179,11 +183,17 @@ export class RealtimeWorkoutSessionManager {
       throw new Error("Live Realtime session is not connected.");
     }
     this.paused = false;
+    // Restore turn_detection so the API resumes processing mic input.
+    await this.sendSessionUpdate();
     this.controller.setConnection(this.controller.publicState().connection.status, {
       paused: false
     });
     this.controller.appendEvent("voice.resumed", "Voice resumed by user.");
     this.controller.persist();
+  }
+
+  async endSession() {
+    this.controller.endSession();
   }
 
   async createWebRtcSession(offerSdp) {
@@ -207,7 +217,7 @@ export class RealtimeWorkoutSessionManager {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
-        "OpenAI-Safety-Identifier": "verve-voice-hack-night-demo"
+        "OpenAI-Safety-Identifier": "in-ear-workout-coach-voice-hack-night-demo"
       },
       body: form
     });
@@ -248,6 +258,26 @@ export class RealtimeWorkoutSessionManager {
   }
 
   buildSessionConfig() {
+    // While paused, disable server VAD entirely so incoming mic audio is
+    // neither transcribed nor used to auto-create responses.
+    const turn_detection = this.paused
+      ? null
+      : this.vadType === "server_vad"
+        ? {
+            type: "server_vad",
+            threshold: this.vadThreshold,
+            prefix_padding_ms: this.vadPrefixMs,
+            silence_duration_ms: this.vadSilenceMs,
+            create_response: true,
+            interrupt_response: true
+          }
+        : {
+            type: "semantic_vad",
+            eagerness: "high",
+            create_response: true,
+            interrupt_response: true
+          };
+
     return {
       type: "realtime",
       model: this.model,
@@ -259,22 +289,7 @@ export class RealtimeWorkoutSessionManager {
           transcription: {
             model: "gpt-4o-mini-transcribe"
           },
-          turn_detection:
-            this.vadType === "server_vad"
-              ? {
-                  type: "server_vad",
-                  threshold: this.vadThreshold,
-                  prefix_padding_ms: this.vadPrefixMs,
-                  silence_duration_ms: this.vadSilenceMs,
-                  create_response: true,
-                  interrupt_response: true
-                }
-              : {
-                  type: "semantic_vad",
-                  eagerness: "high",
-                  create_response: true,
-                  interrupt_response: true
-                }
+          turn_detection
         }
       },
       instructions: buildCoachInstructions(this.controller.publicState()),
@@ -413,6 +428,13 @@ export class RealtimeWorkoutSessionManager {
 
   async handleTimerExpired() {
     if (!this.sidebandSocket) {
+      return;
+    }
+    if (this.paused) {
+      this.controller.appendEvent(
+        "voice.paused_skip",
+        "Rest timer expired while paused; skipping coach prompt."
+      );
       return;
     }
 

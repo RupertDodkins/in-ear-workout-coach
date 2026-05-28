@@ -36,7 +36,9 @@ export function computeStats(state, nowMs = Date.now()) {
   }
 
   const lastSet = completed[completed.length - 1];
-  if (state.phase === "active_set") {
+  const isLiveActive = state.phase === "active_set"
+    || (state.phase === "awaiting_start" && sessionStartMs != null);
+  if (isLiveActive) {
     const fromMs = lastSet
       ? lastSet.rest_ended_at
         ? new Date(lastSet.rest_ended_at).getTime()
