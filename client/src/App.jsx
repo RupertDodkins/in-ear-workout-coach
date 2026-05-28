@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { PHASE_LABEL } from "./lib/constants.js";
 import { useSession, useTick } from "./hooks/useSession.js";
 import { useVoice } from "./hooks/useVoice.js";
@@ -12,6 +12,7 @@ import { ConversationFlow } from "./components/ConversationFlow.jsx";
 export function App() {
   const { state, sendFallback, reset, refresh, pauseVoice, resumeVoice, endSession } = useSession();
   const voice = useVoice({ onAfterConnect: refresh });
+  const [showAllPanels, setShowAllPanels] = useState(true);
   useTick(1000);
 
   useEffect(() => {
@@ -77,10 +78,18 @@ export function App() {
     : null;
 
   return (
-    <div className="app app--phone">
+    <div className={`app app--phone${showAllPanels ? " app--show-all" : ""}`}>
       <header className="page-header">
         <h1 className="page-title">In-Ear Workout Coach</h1>
       </header>
+      <button
+        type="button"
+        className="show-all-toggle"
+        aria-pressed={showAllPanels}
+        onClick={() => setShowAllPanels((v) => !v)}
+      >
+        {showAllPanels ? "Dim side panels" : "Show all panels"}
+      </button>
       <div className="app-row">
         <aside className="side-panel side-panel--left" aria-label="Conversation">
           <div className="side-panel-tag">Conversation</div>
