@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { RING_CIRCUMFERENCE } from "../lib/constants.js";
-import { fmtTime } from "../lib/format.js";
+import { fmtExercise, fmtTime } from "../lib/format.js";
 import { computeStats } from "../lib/stats.js";
 import { CheckIcon, MicIcon } from "./Icon.jsx";
 
@@ -88,7 +88,7 @@ function Step({ step, idx, completedSet, prevCompletedSet, lastCompletedSet, isA
   let noteText = "";
   if (isAdapted) {
     const reason = step.note || step.reason || "adapted";
-    noteText = `Swapped from ${step.modified_from} · ${reason}`;
+    noteText = `Swapped from ${fmtExercise(step.modified_from)} · ${reason}`;
   } else if (completedSet?.note && !isTrivial(completedSet.note)) {
     noteText = `"${completedSet.note}"`;
   } else if (step.note && !isTrivial(step.note)) {
@@ -130,7 +130,7 @@ function Step({ step, idx, completedSet, prevCompletedSet, lastCompletedSet, isA
       <div className="step-num">{isDone ? <CheckIcon strokeWidth={3} /> : idx + 1}</div>
       <div className="step-main">
         <div className="step-title-row">
-          <div className="step-title">{step.exercise}</div>
+          <div className="step-title">{fmtExercise(step.exercise)}</div>
           <div className="step-spec">{spec}</div>
           {isAdapted ? <div className="step-tag">Adapted</div>
             : isActive ? <div className="step-tag live">Active</div> : null}
@@ -280,7 +280,7 @@ export function WorkoutPanel({ state, onEndWorkout }) {
     : "pill orange";
 
   const ringSub = isCompleted ? "complete" : "progress";
-  const previewExercises = plan.slice(0, 4).map((s) => s.exercise).filter(Boolean);
+  const previewExercises = plan.slice(0, 4).map((s) => fmtExercise(s.exercise)).filter(Boolean);
   const estMinutes = Math.max(1, Math.round(plan.length * 1.5));
   const planMetaLine = `${plan.length} ${plan.length === 1 ? "move" : "moves"} · ~${estMinutes} min`;
   const currentIdx = state.current_step_index ?? 0;

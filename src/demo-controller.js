@@ -443,6 +443,89 @@ export class DemoController {
     };
   }
 
+  compressRemainingWorkout({ minutes_left, seconds_left, reason } = {}) {
+    const totalSeconds = Math.max(
+      1,
+      Math.round((Number(minutes_left) || 0) * 60 + (Number(seconds_left) || 0))
+    );
+
+    let restSkipped = false;
+    if (this.timerHandle) {
+      this.clearTimer(this.timerHandle);
+      this.timerHandle = null;
+      restSkipped = true;
+    }
+
+    if (this.state.phase === "resting") {
+      this.state.rest_timer = {
+        active: false,
+        seconds: null,
+        ends_at: null,
+        label: null
+      };
+
+      const restingSet =
+        this.state.completed_sets[this.state.completed_sets.length - 1];
+      if (restingSet && restingSet.rest_started_at && !restingSet.rest_ended_at) {
+        const endedAt = isoNow();
+        restingSet.rest_ended_at = endedAt;
+        restingSet.rest_taken_seconds = Math.max(
+          0,
+          Math.round(
+            (Date.now() - new Date(restingSet.rest_started_at).getTime()) / 1000
+          )
+        );
+      }
+
+      this.state.phase = this.currentStep() ? "active_set" : "completed";
+    }
+
+    const currentIdx = this.state.current_step_index;
+    const remainingCount = this.state.workout_plan.length - currentIdx;
+    let droppedSteps = [];
+    if (remainingCount > 0) {
+      const keepCount = Math.max(
+        1,
+        Math.min(remainingCount, Math.floor(totalSeconds / 60) || 1)
+      );
+      if (remainingCount - keepCount > 0) {
+        droppedSteps = this.state.workout_plan.slice(currentIdx + keepCount);
+        this.state.workout_plan = this.state.workout_plan.slice(
+          0,
+          currentIdx + keepCount
+        );
+      }
+    }
+
+    this.addCoachEvent("compressed_remaining_workout");
+    this.appendEvent(
+      "tool.compress_remaining_workout",
+      `Compressed remaining workout to ${totalSeconds}s budget${reason ? ` (${reason})` : ""}.`,
+      {
+        total_seconds_left: totalSeconds,
+        reason: reason ?? null,
+        rest_skipped: restSkipped,
+        dropped_step_ids: droppedSteps.map((step) => step.id),
+        remaining_plan: clone(this.state.workout_plan.slice(currentIdx))
+      }
+    );
+
+    this.touch();
+    this.persist();
+
+    return {
+      ok: true,
+      total_seconds_left: totalSeconds,
+      rest_skipped: restSkipped,
+      dropped_step_ids: droppedSteps.map((step) => step.id),
+      current_phase: this.state.phase,
+      next_step: this.currentStep(),
+      remaining_plan: clone(this.state.workout_plan.slice(currentIdx)),
+      reply_guidance:
+        "Acknowledge the shorter time window and direct Rupert into the next move immediately."
+    };
+  }
+
   buildSummaryPayload() {
     return {
       session_type: "voice_guided_workout",

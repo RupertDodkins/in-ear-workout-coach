@@ -12,3 +12,12 @@ export function fmtClock(iso) {
   if (Number.isNaN(d.getTime())) return "—";
   return d.toTimeString().slice(0, 8);
 }
+
+export function fmtExercise(name) {
+  if (!name) return "";
+  return String(name)
+    .split(/[\s-]+/)
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1).toLowerCase())
+    .join(" ");
+}
